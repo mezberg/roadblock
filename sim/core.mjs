@@ -38,7 +38,48 @@ export const DEFAULTS = {
   stuckTimeSec: 10,     // as MATSim: a car blocked this long squeezes onto the next road anyway
   costUpdateSec: 30,     // how often router travel-time estimates refresh
   maxSimSec: 27 * 3600, // a weekday from 00:00, plus time for late trips to finish
+  // Where nothing merges into or crosses a road's traffic at its end (a lane splitting off,
+  // a bend, a cut in a road), there is no give-way or signal to share: each lane passes cars
+  // at its saturation flow, not the class's urban junction capacity. (veh/h per lane)
+  freeEndPerLane: 1800,
 };
+
+// Edges none of whose movements at their end node merge with or cross another approach's.
+// Turns sharper than 135° count as U-turns. Crossing: the two movements' lane points
+// (keep-left side of each arm) interleave around the node.
+export function conflictFreeEnds(graph) {
+  const E = graph.edges.length, N = graph.nodes.length, MAX_TURN = (135 * Math.PI) / 180;
+  const ins = Array.from({ length: N }, () => []), outs = Array.from({ length: N }, () => []);
+  graph.edges.forEach((e, i) => { if (!e.dead) { outs[e.from].push(i); ins[e.to].push(i); } });
+  const away = (i, atStart) => { // unit direction from the node out along edge i
+    const g = graph.edges[i].geom, [a, b] = atStart ? [g[0], g[1]] : [g[g.length - 1], g[g.length - 2]];
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+    return [dx / l, dy / l];
+  };
+  const angle = (d, side) => Math.atan2(d[1] * 10 - side * d[0] * 2, d[0] * 10 + side * d[1] * 2);
+  const inArc = (a, b, x) => { const T = 2 * Math.PI, s = (((x - a) % T) + T) % T, t = (((b - a) % T) + T) % T; return s > 1e-9 && s < t - 1e-9; };
+  const free = new Uint8Array(E);
+  for (let n = 0; n < N; n++) {
+    const I = ins[n], O = outs[n];
+    if (!I.length) continue;
+    const aOut = new Map(O.map((o) => [o, angle(away(o, true), 1)]));
+    const moves = I.map((i) => {
+      const d = away(i, false), g = graph.edges[i];
+      return O.filter((o) => {
+        const h = graph.edges[o], q = away(o, true);
+        return h.to !== g.from && Math.acos(Math.max(-1, Math.min(1, -d[0] * q[0] - d[1] * q[1]))) <= MAX_TURN;
+      });
+    });
+    I.forEach((i, x) => {
+      const a = angle(away(i, false), -1);
+      free[i] = moves[x].length && I.every((j, y) => y === x || moves[y].every((p) => {
+        const c = angle(away(j, false), -1), d = aOut.get(p);
+        return moves[x].every((o) => o !== p && inArc(a, aOut.get(o), c) === inArc(a, aOut.get(o), d));
+      })) ? 1 : 0;
+    });
+  }
+  return free;
+}
 
 // --- Network: typed-array view of data/<area>.graph.json ------------------------------
 // Edges flagged `dead` (removed by the player) keep their id and their arrays — cars still
@@ -90,6 +131,8 @@ export class Network {
     this.inEdges = new Int32Array(live.length);
     const fillIn = this.inStart.slice(0, N);
     for (const i of live) this.inEdges[fillIn[this.to[i]]++] = i;
+    const free = conflictFreeEnds(graph);
+    for (let i = 0; i < E; i++) if (free[i]) this.capPerSec[i] = Math.max(this.capPerSec[i], (graph.edges[i].lanes * o.freeEndPerLane) / 3600);
     this.buildLandmarks(o.landmarks ?? 8);
   }
 

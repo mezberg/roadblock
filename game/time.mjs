@@ -7,8 +7,8 @@
 // per sim second. See demandBoost for the correction that makes up for the short peaks.
 export const TIME = {
   stretch: 12,           // game seconds per sim second
-  demandBoost: 1.35,     // × the share of trips simulated. A stretched peak is short in sim time, so
-                         // queues build less than in a real 3-hour peak; 1.35 brings the untouched
+  demandBoost: 1.43,     // × the share of trips simulated. A stretched peak is short in sim time, so
+                         // queues build less than in a real 3-hour peak; 1.43 brings the untouched
                          // city back to its calibrated ×2.0 delay (avg trip ≈ 4 game hours)
   lanesDemandBoost: 1.05, // the same for the lane model (sim/micro.mjs): its junctions pass fewer cars
                          // than the queue model's calibrated capacities; 1.05 gives the untouched
