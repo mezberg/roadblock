@@ -252,6 +252,8 @@ export class Simulation {
     this.qHead = new Int32Array(E);
     this.count = new Int32Array(E);
     this.budget = new Float64Array(E);
+    // When each idle edge last had a car leave (its budget keeps filling while no one uses it)
+    this.idleSince = new Float64Array(E).fill(-1e9);
     this.cost = Float64Array.from(net.freeTime, (t, e) => t * net.routePenalty[e]);
     this.freeCost = Float64Array.from(this.cost);
     this.lastCostUpdate = 0;
@@ -293,7 +295,15 @@ export class Simulation {
     this.flowByType[e * 4 + this.vType[v]]++;
     this.vEnter[v] = at;
     this.vReady[v] = at + net.freeTime[e];
-    if (!this.isActive[e]) { this.isActive[e] = 1; this.active.push(e); }
+    if (!this.isActive[e]) {
+      this.isActive[e] = 1; this.active.push(e);
+      // The stop line has been free since the last car left, so a car on an empty road may
+      // leave as soon as it gets there — not wait 1/capacity from when it came on (up to
+      // 18 s on a 200 veh/h side street: a car stopping at a clear junction). Busy roads
+      // never go idle, so their flow limit is unchanged.
+      const cap = net.capPerSec[e];
+      this.budget[e] = Math.min(Math.max(1, cap), this.budget[e] + cap * Math.max(0, at - this.idleSince[e]));
+    }
   }
 
   routeFor(o, d) {
@@ -393,7 +403,7 @@ export class Simulation {
     }
     this.active = act.filter((e) => {
       if (count[e] > 0) return true;
-      this.isActive[e] = 0; queue[e].length = 0; qHead[e] = 0; budget[e] = 0;
+      this.isActive[e] = 0; queue[e].length = 0; qHead[e] = 0; this.idleSince[e] = this.t + dt; // budget[e] is kept
       return false;
     });
 
@@ -408,7 +418,7 @@ export class Simulation {
     const oldE = this.net.E, E = net.E;
     if (E > oldE) {
       const grow = (a) => { const b = new a.constructor(a.length / oldE * E); b.set(a); return b; };
-      for (const k of ["qHead", "count", "budget", "isActive", "flow", "plannedFlow", "flowByType", "delaySec"]) this[k] = grow(this[k]);
+      for (const k of ["qHead", "count", "budget", "idleSince", "isActive", "flow", "plannedFlow", "flowByType", "delaySec"]) this[k] = grow(this[k]);
       for (let e = oldE; e < E; e++) this.queue.push([]);
     }
     this.net = net;

@@ -110,6 +110,12 @@
 
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; color: var(--muted); z-index: 9; background: var(--bg); }
   .attr { position: fixed; bottom: 4px; right: 10px; font-size: 11px; color: var(--muted); }
+  /* first-visit hint */
+  #hint { left: 50%; bottom: 100px; transform: translateX(-50%); padding: 12px 14px 12px 16px; width: 440px; max-width: calc(100vw - 48px); box-sizing: border-box; z-index: 5; display: none; }
+  #hint b { display: block; font-size: 15px; margin-bottom: 4px; }
+  #hint ol { margin: 0 0 10px; padding-left: 18px; }
+  #hint .row { margin-top: 0; justify-content: flex-end; }
+  #hint .row button { flex: none; }
   @media (max-width: 760px) {
     #kpi { display: none; }
     #tools button { min-width: 48px; font-size: 0; } #tools button kbd { display: none; }
@@ -188,6 +194,33 @@
 <div id="tip"></div>
 <div id="toast"></div>
 <div id="loading">Loading Greenwich…</div>
+<div class="card" id="hint">
+  <b>Fix the morning rush in Greenwich</b>
+  <ol>
+    <li>Press <b style="display:inline;font-size:inherit">⏩ to 07:00</b> and watch the roads turn red.</li>
+    <li>Build a road, widen one or reroute traffic — the drivers react straight away.</li>
+    <li>At midnight the council compares your day with the untouched city.</li>
+  </ol>
+  <div class="row"><button id="hintOk" class="primary">Got it</button></div>
+</div>
+<script>
+  // shown once per browser (a convenience, so plain localStorage)
+  try { if (!localStorage.getItem("roadblock-hint-seen")) document.getElementById("hint").style.display = "block"; } catch {}
+  document.getElementById("hintOk").onclick = () => {
+    document.getElementById("hint").style.display = "none";
+    try { localStorage.setItem("roadblock-hint-seen", "1"); } catch {}
+  };
+</script>
+<script>
+  // Visit counter (GoatCounter: no cookies, no banner). Counts only the public site.
+  const GOATCOUNTER = ""; // e.g. "roadblock" for https://roadblock.goatcounter.com
+  if (GOATCOUNTER && location.hostname.endsWith("github.io")) {
+    const gc = document.createElement("script");
+    gc.async = true; gc.src = "https://gc.zgo.at/count.js";
+    gc.dataset.goatcounter = `https://${GOATCOUNTER}.goatcounter.com/count`;
+    document.head.append(gc);
+  }
+</script>
 <div class="attr">© OpenStreetMap contributors · DfT road traffic statistics (OGL)</div>
 <script type="module" src="game/main.mjs"></script>
 </body>
