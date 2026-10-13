@@ -824,9 +824,20 @@ function onCars(data) {
 }
 const BODY = ["#f4f5f6", "#2b2f33", "#8d959c", "#2563eb", "#d93a32", "#1e3a5f", "#3f7d4f", "#e8b931"];
 const LORRY = "#5b6770", BUS = "#c8312a";
+// Zoomed out further than this (px per metre), cars are hidden (only a followed one stays)
+// and the jam colours tell the story. Cars are drawn at least 9 px long, so below ~0.6 even
+// moving traffic (~20 m apart) is a solid smear covering the red it sits on (checked on
+// frames at 0.3 / 0.45 / 0.6 / 0.9 at the 08:40 peak); and ~8k cars cost more than the map.
+const CARS_MIN_SCALE = 0.6;
+const carsShown = () => view.scale >= CARS_MIN_SCALE;
+let carHint = null;
 function drawCars(g) {
   const now = performance.now(), dt = now - lastDraw; lastDraw = now;
   const a = dt > 250 ? 1 : 1 - Math.exp(-dt / 90);
+  const all = carsShown();
+  if (carHint !== all) { carHint = all; $("carHint").textContent = all ? "Click a car to follow it" : "Zoom in to see cars"; }
+  // on screen, with room for a car drawn up to 5× long
+  const [x0, y0] = toWorld(-60, -60), [x1, y1] = toWorld(innerWidth + 60, innerHeight + 60);
   // cars are drawn at least ~9 px long so you can see and follow them when zoomed out
   const grow = Math.min(5, Math.max(1, 9 / (VEHICLES[0].len * view.scale)));
   const asDots = VEHICLES[0].len * view.scale * grow < 6;
@@ -837,6 +848,7 @@ function drawCars(g) {
     if (p[3] !== stamp) continue;
     p[0] += (p[4] - p[0]) * a; p[1] += (p[5] - p[1]) * a;
     let dh = p[6] - p[2]; dh -= Math.round(dh / (2 * Math.PI)) * 2 * Math.PI; p[2] += dh * a;
+    if (all ? p[0] < x0 || p[0] > x1 || p[1] < y0 || p[1] > y1 : id !== followed) continue;
     const kind = vehicleOf(id), col = kind === 3 ? BUS : kind === 2 ? LORRY : BODY[colourOf(id)];
     if (asDots) { const sz = 2.2 / view.scale; pathFor(col).rect(p[0] - sz / 2, p[1] - sz / 2, sz, sz); continue; }
     const v = VEHICLES[kind], hl = (v.len * grow) / 2, hw = (v.w * Math.min(grow, 1.8)) / 2;
@@ -871,6 +883,7 @@ function drawCars(g) {
 // --- Following one car ------------------------------------------------------------------
 let followed = null, carInfo = null, carTimer = null, arrivedAt = null;
 function carAt(sx, sy) {
+  if (!carsShown() || !$("showCars").checked) return null;
   const [x, y] = toWorld(sx, sy), r = 14 / view.scale;
   let best = null, bd = r;
   for (const [id, p] of shown) {
@@ -942,6 +955,6 @@ function tick() {
 setTool("pan");
 worker.onmessage = onWorker;
 // console handle for debugging and scripted tests
-window.roadblock = { editor, map, save, worker, cars: shown, get view() { return view; }, setView(v) { Object.assign(view, v); mapDirty = true; }, toWorld };
+window.roadblock = { editor, map, save, worker, cars: shown, get congestion() { return congestion; }, get view() { return view; }, setView(v) { Object.assign(view, v); mapDirty = true; }, toWorld };
 updateHud();
 requestAnimationFrame(tick);
