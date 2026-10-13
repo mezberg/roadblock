@@ -108,7 +108,8 @@ export class MapRenderer {
   }
 
   // scale = screen px per metre. What is on screen comes from the context's transform.
-  draw(g, scale, { congestion, showJams }) {
+  // showFree: green on roads flowing freely (the game shows it only while cars are hidden)
+  draw(g, scale, { congestion, showJams, showFree = false }) {
     const t = g.getTransform(), pad = 20 + 10 / scale;
     const view = [-t.e / t.a - pad, -t.f / t.d - pad, (g.canvas.width - t.e) / t.a + pad, (g.canvas.height - t.f) / t.d + pad];
     g.fillStyle = COLORS.land; g.fillRect(view[0], view[1], view[2] - view[0], view[3] - view[1]);
@@ -132,7 +133,7 @@ export class MapRenderer {
     if (showJams && congestion) {
       const { graph } = this.ed;
       for (let e = 0; e < congestion.length && e < graph.edges.length; e++) {
-        const c = congestion[e], b = c >= 0.75 ? 3 : jamBucket(c);
+        const c = congestion[e], b = c >= 0.75 && showFree ? 3 : jamBucket(c);
         if (b < 0 || !this.edgePath[e] || !overlaps(this.edgeBox[e], view)) continue;
         const lv = levelOf(graph.edges[e]), lanes = Math.max(1, Math.round(graph.edges[e].lanes));
         const buckets = jams.get(lv) ?? jams.set(lv, [new Map(), new Map(), new Map(), new Map()]).get(lv), m = buckets[b];

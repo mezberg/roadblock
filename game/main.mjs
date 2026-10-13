@@ -680,7 +680,8 @@ function drawMap() {
   const g = mctx;
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
   setWorld(g);
-  map.draw(g, view.scale, { congestion, showJams: $("showJams").checked });
+  // green for free flow only where cars aren't drawn; zoomed in, the cars show it
+  map.draw(g, view.scale, { congestion, showJams: $("showJams").checked, showFree: !carsShown() || !$("showCars").checked });
 }
 
 function strokeSeg(g, s, color, extra = 2) {
