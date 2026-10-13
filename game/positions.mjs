@@ -107,6 +107,33 @@ export class CarDisplay {
     this.lastAt = at;
     if (!this.cv || this.cv.length < n) this.grow(n * 2 + 64);
     const { cv, ck, cedge, clocal, cpush, cadv } = this;
+    // A queue longer than its road (the sim lets stuck cars squeeze on) backs up each car's
+    // own approach road. Count those cars per approach and lane first, so each approach gets
+    // its own unbroken queue (not every other car, with holes where the other approach's
+    // cars would be), and that road's own queue stands behind them.
+    const spillD = new Map(), spillN = new Map(), recvLane = new Map(); // car → place behind the road's start; approach lane → cars, metres
+    for (const e of sim.active) {
+      const q = sim.queue[e], len = net.length[e], lanes = Math.min(8, Math.max(1, Math.round(net.lanes[e])));
+      const line = len - (stopBack[e] * len) / shapes[e].len;
+      if (sim.count[e] * CLOSEST_M <= line) continue; // fits on its road, even all in one lane
+      standing.fill(0); queued.fill(0);
+      for (let h = sim.qHead[e]; h < q.length; h++) { const v = q[h]; if (sim.vReady[v] <= at && at >= sim.vEnter[v]) standing[v % lanes]++; }
+      for (let k = 0; k < lanes; k++) gapOf[k] = standing[k] > 1 ? Math.min(SPACING_M, Math.max(CLOSEST_M, line / standing[k])) : SPACING_M;
+      for (let h = sim.qHead[e]; h < q.length; h++) {
+        const v = q[h], lane = v % lanes, r = sim.vRoute[v], p = sim.vPos[v];
+        if (!(sim.vReady[v] <= at && at >= sim.vEnter[v])) continue;
+        if (line - queued[lane]++ * gapOf[lane] >= 0 || p === 0) continue;
+        // the first road back along its route with room in its lane (a long queue fills several)
+        let k = p - 1, back = 0, key, slot;
+        for (;;) {
+          const prev = r[k], room = net.length[prev];
+          key = prev * 8 + (v % Math.min(8, Math.max(1, Math.round(net.lanes[prev])))); slot = spillN.get(key) ?? 0;
+          if ((slot + 1) * gapOf[lane] <= room || k === 0) break;
+          back += room; k--;
+        }
+        spillN.set(key, slot + 1); spillD.set(v, -back - (slot + 0.5) * gapOf[lane]); recvLane.set(key, (slot + 1) * gapOf[lane]);
+      }
+    }
     let i = 0;
     for (const e of sim.active) {
       const q = sim.queue[e], s = shapes[e], len = net.length[e], lanes = Math.min(8, Math.max(1, Math.round(net.lanes[e])));
@@ -118,12 +145,20 @@ export class CarDisplay {
       for (let k = 0; k < lanes; k++) gapOf[k] = standing[k] > 1 ? Math.min(SPACING_M, Math.max(CLOSEST_M, line / standing[k])) : SPACING_M;
       for (let h = sim.qHead[e]; h < q.length && i < n; h++) {
         const v = q[h], lane = v % lanes, r = sim.vRoute[v], p = sim.vPos[v];
-        const tail = line - queued[lane] * gapOf[lane]; // where the next car in its lane would stand
+        // where the next car in its lane would stand: behind any queue backed up from the road ahead
+        const tail = Math.min(line, len - (recvLane.get(e * 8 + lane) ?? 0)) - queued[lane] * gapOf[lane];
         // where the sim has it, as metres from the start of this road (negative: still on the one before)
         let d;
         if (at < sim.vEnter[v] && p > 0) d = -((sim.vEnter[v] - at) / net.freeTime[r[p - 1]]) * net.length[r[p - 1]];
-        else if (sim.vReady[v] <= at) { d = tail; queued[lane]++; }
-        else { d = Math.max(0, (at - sim.vEnter[v]) / net.freeTime[e]) * len; if (queued[lane]) d = Math.min(d, tail); }
+        else if (sim.vReady[v] <= at) { d = spillD.get(v) ?? tail; queued[lane]++; }
+        else {
+          d = Math.max(0, (at - sim.vEnter[v]) / net.freeTime[e]) * len;
+          if (queued[lane]) {
+            let back = tail;
+            if (tail < 0 && p > 0) { const prev = r[p - 1]; back = -((spillN.get(prev * 8 + (v % Math.min(8, Math.max(1, Math.round(net.lanes[prev]))))) ?? 0) + 0.5) * gapOf[lane]; }
+            d = Math.min(d, back);
+          }
+        }
         // keep a running distance along the route
         if (edgeOf[v] !== e) {
           let k = p - 1, add = 0; // the roads passed since the last frame (one, or several short ones)
