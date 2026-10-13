@@ -8,6 +8,7 @@ export const COLORS = {
   building: "#d6dadb", buildingEdge: "#c3c8ca", lot: "#e7dcc7", lotEdge: "#cdbd9f",
   kerb: "#7f878e", asphalt: "#a9afb4", marking: "#ffffff", deck: "#2b3035",
   jam: ["#dc2626", "#f97316", "#eab308"], // jammed, heavy, slow
+  free: "#22a35a", // cars on it, flowing
   car: ["#2a78d6", "#eb6834", "#1baf7a", "#7a5af5"],
 };
 export const jamBucket = (c) => (c < 0 || c >= 0.75 ? -1 : c < 0.3 ? 0 : c < 0.5 ? 1 : 2);
@@ -116,6 +117,8 @@ export class MapRenderer {
     const B = this.bTiles.pick(view, this);
     g.fillStyle = COLORS.building; for (const b of B) g.fill(b.bPath);
     g.fillStyle = COLORS.lot; for (const b of B) g.fill(b.lotPath);
+    // big landmarks that aren't plain buildings (the O2): drawn like one, never demolished
+    if (this.areas.landmark) { g.fillStyle = COLORS.building; g.fill(this.areas.landmark); g.lineWidth = 1.2 / scale; g.strokeStyle = COLORS.buildingEdge; g.stroke(this.areas.landmark); }
     if (scale > 1.2) {
       g.lineWidth = 0.6 / scale * 1.5;
       g.strokeStyle = COLORS.buildingEdge; for (const b of B) g.stroke(b.bPath);
@@ -123,15 +126,16 @@ export class MapRenderer {
     }
     g.lineCap = g.lineJoin = "round";
     const minPx = 1.3 / scale;
-    // jam colours per level, so a jam in a tunnel doesn't paint over the street above it
+    // traffic colours per level, so a jam in a tunnel doesn't paint over the street above it;
+    // bucket 3 = flowing freely (green), empty roads stay grey
     const jams = new Map();
     if (showJams && congestion) {
       const { graph } = this.ed;
       for (let e = 0; e < congestion.length && e < graph.edges.length; e++) {
-        const b = jamBucket(congestion[e]);
+        const c = congestion[e], b = c >= 0.75 ? 3 : jamBucket(c);
         if (b < 0 || !this.edgePath[e] || !overlaps(this.edgeBox[e], view)) continue;
         const lv = levelOf(graph.edges[e]), lanes = Math.max(1, Math.round(graph.edges[e].lanes));
-        const buckets = jams.get(lv) ?? jams.set(lv, [new Map(), new Map(), new Map()]).get(lv), m = buckets[b];
+        const buckets = jams.get(lv) ?? jams.set(lv, [new Map(), new Map(), new Map(), new Map()]).get(lv), m = buckets[b];
         (m.get(lanes) ?? m.set(lanes, new Path2D()).get(lanes)).addPath(this.edgePath[e]);
       }
     }
@@ -154,7 +158,10 @@ export class MapRenderer {
       const jl = jams.get(lv);
       if (jl) {
         g.globalAlpha = tunnel ? 0.32 : 0.85;
-        jl.forEach((m, b) => { g.strokeStyle = COLORS.jam[b]; for (const [lanes, p] of m) { g.lineWidth = Math.max(lanes * LANE_W * 0.7, 3 / scale); g.stroke(p); } });
+        for (const b of [3, 2, 1, 0]) { // worst on top
+          g.strokeStyle = b === 3 ? COLORS.free : COLORS.jam[b];
+          for (const [lanes, p] of jl[b]) { g.lineWidth = Math.max(lanes * LANE_W * 0.7, 3 / scale); g.stroke(p); }
+        }
       }
       if (scale > 1.4 && !tunnel) {
         const a = Math.min(1, (scale - 1.4) / 1.2);

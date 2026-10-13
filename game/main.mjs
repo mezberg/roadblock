@@ -26,14 +26,18 @@ function loadSave() {
 let save = loadSave();
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch {} }
 
-const [graph, footprints, levels] = await Promise.all([
+const optional = (s) => fetch(`data/${AREA}${s}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+const [graph, footprints, levels, extra] = await Promise.all([
   ...[".graph", ".footprints"].map((s) => fetch(`data/${AREA}${s}.json`).then((r) => r.json())),
-  fetch(`data/${AREA}.levels.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null), // bridges & tunnels, drawing only
+  optional(".levels"), // bridges & tunnels, drawing only
+  // what footprints miss: the Thames round the Greenwich peninsula (its OSM relation didn't
+  // stitch) and the O2 (a multipolygon); picture only, nothing is built or demolished there
+  optional(".extra-map"),
 ]);
 applyLevels(graph, levels);
 const editor = new Editor(graph, footprints);
 for (const p of save.patches) editor.apply(p);
-const map = new MapRenderer(editor, footprints);
+const map = new MapRenderer(editor, extra ? { ...footprints, areas: [...footprints.areas, { kind: "water", rings: extra.rings }, { kind: "landmark", rings: extra.o2.rings }] } : footprints);
 $("areaName").textContent = graph.area.title;
 document.title = `Roadblock — ${graph.area.title}`;
 
