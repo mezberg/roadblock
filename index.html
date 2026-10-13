@@ -116,6 +116,16 @@
   #hint ol { margin: 0 0 10px; padding-left: 18px; }
   #hint .row { margin-top: 0; justify-content: flex-end; }
   #hint .row button { flex: none; }
+  /* "your city next?" sign-up */
+  #cityLink { position: fixed; left: 12px; bottom: 12px; z-index: 4; font-size: 13px; padding: 7px 12px; box-shadow: 0 2px 10px #0002; display: none; }
+  #cityForm { left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 18px 20px; width: 340px; max-width: calc(100vw - 32px); box-sizing: border-box; z-index: 8; display: none; }
+  #cityForm h2 { margin: 0 0 4px; font-size: 19px; }
+  #cityForm label { display: block; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  #cityForm input { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; font: inherit; font-size: 15px; padding: 7px 9px; border: 1px solid #0003; border-radius: 8px; }
+  #cityForm .row button { flex: none; }
+  #cityForm .row { justify-content: flex-end; }
+  #cityMsg { margin-top: 8px; font-size: 13px; }
+  @media (max-width: 1100px) { #cityLink { bottom: auto; top: 250px; } }
   @media (max-width: 760px) {
     #kpi { display: none; }
     #tools button { min-width: 48px; font-size: 0; } #tools button kbd { display: none; }
@@ -186,7 +196,7 @@
   <div class="muted" id="deSub"></div>
   <div class="stats" id="deStats"></div>
   <div id="deCouncil"></div>
-  <div class="row"><button id="deNext" class="primary">Start next day</button></div>
+  <div class="row"><button id="deCity" style="display:none">Request my borough</button><button id="deNext" class="primary">Start next day</button></div>
 </div>
 
 <div class="card" id="carCard"></div>
@@ -220,6 +230,47 @@
     gc.dataset.goatcounter = `https://${GOATCOUNTER}.goatcounter.com/count`;
     document.head.append(gc);
   }
+</script>
+<button id="cityLink">Request my borough</button>
+<form class="card" id="cityForm">
+  <h2>Your borough next?</h2>
+  <div class="muted">Greenwich is the first map. Tell me which London borough you want next, and I'll email you once when it's playable. Nothing else.</div>
+  <label>Borough<input name="city" required maxlength="80" placeholder="e.g. Hackney, Camden, Southwark"></label>
+  <label>Email<input name="email" type="email" required maxlength="120" placeholder="you@example.com"></label>
+  <div id="cityMsg" class="muted"></div>
+  <div class="row"><button type="button" id="cityCancel">Close</button><button type="submit" class="primary" id="citySend">Send</button></div>
+</form>
+<script>
+  // "Request my borough" sign-ups go to a Google Form (answers land in its Google Sheet).
+  // Fill in from the form's pre-filled link: .../formResponse and the two entry.<id> names
+  // (`city` = the Borough question).
+  const CITY_FORM = { action: "", city: "", email: "" };
+  (() => {
+    if (!CITY_FORM.action) return; // not set up: no button
+    const $ = (id) => document.getElementById(id), form = $("cityForm");
+    $("cityLink").style.display = "block"; $("deCity").style.display = "";
+    const open = () => { form.style.display = "block"; $("cityMsg").textContent = ""; form.city.focus(); };
+    $("cityLink").onclick = open;
+    $("cityCancel").onclick = () => (form.style.display = "none");
+    for (const id of ["hintCity", "deCity"]) $(id)?.addEventListener("click", open);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = new URLSearchParams({ [CITY_FORM.city]: form.city.value.trim(), [CITY_FORM.email]: form.email.value.trim() });
+      $("citySend").disabled = true;
+      try {
+        // Google Forms answers without CORS headers: the request goes through, the reply can't be read
+        await fetch(CITY_FORM.action, { method: "POST", mode: "no-cors", body });
+        $("cityMsg").textContent = `Thanks! ${form.city.value.trim()} is on the list.`;
+        $("cityMsg").className = "good";
+        form.reset();
+        setTimeout(() => (form.style.display = "none"), 2200);
+      } catch {
+        $("cityMsg").textContent = "Couldn't send — check your connection and try again.";
+        $("cityMsg").className = "bad";
+      }
+      $("citySend").disabled = false;
+    };
+  })();
 </script>
 <div class="attr">© OpenStreetMap contributors · DfT road traffic statistics (OGL)</div>
 <script type="module" src="game/main.mjs"></script>
