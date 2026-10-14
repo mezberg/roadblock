@@ -44,6 +44,34 @@ export const DEFAULTS = {
   freeEndPerLane: 1800,
 };
 
+// Short OSM pieces with fewer lanes than the road on both sides of them: a lane tag that
+// changes a few metres early or late, or a gore piece mapped before a split (e.g. 4 lanes →
+// 16 m of 2 → 2 + 2). A plain cut in a carriageway (one road in, one way on, no side road
+// joining at its end) shorter than `maxLen`, narrower than the road before it and than
+// the branches of the same or a higher road class it feeds (side streets don't count), gets min(lanes before, lanes it feeds). Real lane drops are left
+// alone: there the narrower count carries on past the short piece, so it isn't a dip.
+// Returns Map edge → lanes the sim should use (the graph and the drawn road keep OSM's).
+const CLASS_ORDER = Object.keys(ROAD_CLASS).reverse(); // service … motorway
+const rank = (highway) => CLASS_ORDER.indexOf(highway.replace("_link", ""));
+export function laneDips(graph, maxLen = 25) {
+  const N = graph.nodes.length, ins = Array.from({ length: N }, () => []), outs = Array.from({ length: N }, () => []);
+  graph.edges.forEach((e, i) => { if (!e.dead) { outs[e.from].push(i); ins[e.to].push(i); } });
+  const E = graph.edges, out = new Map();
+  E.forEach((e, i) => {
+    if (e.dead || e.length >= maxLen) return;
+    const up = ins[e.from].filter((j) => E[j].from !== e.to); // not the other direction of this piece
+    if (up.length !== 1) return;
+    const u = up[0];
+    if (outs[e.from].some((j) => j !== i && E[j].to !== E[u].from)) return; // a side road leaves here
+    const down = outs[e.to].filter((j) => E[j].to !== e.from);
+    if (!down.length || ins[e.to].some((j) => j !== i && !down.some((d) => E[d].to === E[j].from))) return; // something joins at its end
+    // what it feeds: the carriageway's own branches, not side streets turning off
+    const fed = down.reduce((s, j) => s + (rank(E[j].highway) >= rank(e.highway) ? E[j].lanes : 0), 0), lanes = Math.min(E[u].lanes, fed);
+    if (lanes > e.lanes && E[u].lanes > e.lanes && down.every((j) => E[j].lanes >= e.lanes)) out.set(i, lanes);
+  });
+  return out;
+}
+
 // Edges none of whose movements at their end node merge with or cross another approach's.
 // Turns sharper than 135° count as U-turns. Crossing: the two movements' lane points
 // (keep-left side of each arm) interleave around the node.
@@ -131,8 +159,15 @@ export class Network {
     this.inEdges = new Int32Array(live.length);
     const fillIn = this.inStart.slice(0, N);
     for (const i of live) this.inEdges[fillIn[this.to[i]]++] = i;
+    // the sim's own lane count: OSM's, except short dips (see laneDips); this.lanes stays OSM's for drawing
+    const simLanes = Float64Array.from(graph.edges, (e) => e.lanes);
+    for (const [i, l] of laneDips(graph)) {
+      this.capPerSec[i] *= l / simLanes[i]; simLanes[i] = l;
+      this.storage[i] = Math.max(1, Math.floor((graph.edges[i].length * l) / o.vehicleSpacingM));
+    }
+    this.dips = simLanes;
     const free = conflictFreeEnds(graph);
-    for (let i = 0; i < E; i++) if (free[i]) this.capPerSec[i] = Math.max(this.capPerSec[i], (graph.edges[i].lanes * o.freeEndPerLane) / 3600);
+    for (let i = 0; i < E; i++) if (free[i]) this.capPerSec[i] = Math.max(this.capPerSec[i], (simLanes[i] * o.freeEndPerLane) / 3600);
     this.buildLandmarks(o.landmarks ?? 8);
   }
 
@@ -418,7 +453,10 @@ export class Simulation {
     const act = this.orderActive();
     for (const e of act) {
       const capDt = net.capPerSec[e] * dt;
-      budget[e] = Math.min(budget[e] + capDt, Math.max(1, capDt));
+      // Keep the fraction left over after the last car (capacity would otherwise come in
+      // steps: 1.5 cars/s passing 1, 0.28/s passing one car every 4 s); only budget that went
+      // unused is capped, so a road that's been quiet releases at most max(1, capDt) at once.
+      budget[e] = budget[e] < 1 ? budget[e] + capDt : Math.min(budget[e] + capDt, Math.max(1, capDt));
       const q = queue[e];
       while (qHead[e] < q.length && budget[e] >= 1) {
         const v = q[qHead[e]];
